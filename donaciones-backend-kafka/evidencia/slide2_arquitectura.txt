@@ -1,0 +1,22 @@
+=== Contenedores del sistema (backend, frontend, brokers, IDaaS)
+    2026-10-26 15:05:46
+NAME                   STATUS                        PORTS
+api-gateway            Up 13 minutes                 0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+donaciones-frontend    Up 13 minutes                 0.0.0.0:4200->80/tcp, [::]:4200->80/tcp
+donaciones-keycloak    Up 15 minutes (healthy)       0.0.0.0:9090->8080/tcp, [::]:9090->8080/tcp
+donaciones-mysql       Up About a minute (healthy)   0.0.0.0:3306->3306/tcp, [::]:3306->3306/tcp
+donaciones-rabbitmq    Up About a minute (healthy)   0.0.0.0:5672->5672/tcp, [::]:5672->5672/tcp, 0.0.0.0:15672->15672/tcp, [::]:15672->15672/tcp
+donaciones-rabbitmq2   Up About a minute (healthy)   0.0.0.0:5673->5672/tcp, [::]:5673->5672/tcp, 0.0.0.0:15673->15672/tcp, [::]:15673->15672/tcp
+ms-donaciones          Up 14 minutes (healthy)       0.0.0.0:8082->8082/tcp, [::]:8082->8082/tcp
+ms-logistica           Up About a minute (healthy)   0.0.0.0:8084->8084/tcp, [::]:8084->8084/tcp
+ms-necesidades         Up About a minute (healthy)   0.0.0.0:8083->8083/tcp, [::]:8083->8083/tcp
+ms-rabbit-admin        Up 15 minutes (healthy)       0.0.0.0:8085->8085/tcp, [::]:8085->8085/tcp
+ms-usuarios            Up 15 minutes (healthy)       0.0.0.0:8081->8081/tcp, [::]:8081->8081/tcp
+
+=== Claims del JWT emitido por Keycloak (usuario admin)
+    2026-10-26 15:05:47
+iss: http://localhost:9090/realms/donaciones
+preferred_username: admin
+realm_access: {'roles': ['ADMIN']}
+exp: 1793038245
+

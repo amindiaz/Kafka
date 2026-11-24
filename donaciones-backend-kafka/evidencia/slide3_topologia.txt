@@ -1,0 +1,36 @@
+=== Clúster RabbitMQ (2 nodos)
+    2026-10-26 15:05:47
+Cluster name: rabbit@rabbitmq
+rabbit@rabbitmq
+rabbit@rabbitmq2
+Running Nodes
+rabbit@rabbitmq
+rabbit@rabbitmq2
+rabbit@rabbitmq: RabbitMQ 3.13.7 on Erlang 26.2.5.16
+rabbit@rabbitmq2: RabbitMQ 3.13.7 on Erlang 26.2.5.16
+
+=== Exchanges (topic y direct)
+    2026-10-26 15:05:49
+name	type	durable
+donaciones.exchange	topic	true
+donaciones.dlx	direct	true
+
+=== Colas y sus DLQ (consumidores, política de réplica)
+    2026-10-26 15:05:50
+name	messages	consumers	policy
+necesidades.notificacion.donacion.queue.dlq	0	0	ha-donaciones
+necesidades.notificacion.donacion.queue	0	1	ha-donaciones
+logistica.donacion.creada.queue.dlq	1	0	ha-donaciones
+logistica.donacion.estado.queue.dlq	0	0	ha-donaciones
+logistica.donacion.estado.queue	0	1	ha-donaciones
+logistica.donacion.creada.queue	0	1	ha-donaciones
+
+=== Bindings: routing key → cola
+    2026-10-26 15:05:51
+donaciones.dlx	exchange	logistica.donacion.creada.queue.dlq	logistica.donacion.creada.queue.dlq
+donaciones.dlx	exchange	logistica.donacion.estado.queue.dlq	logistica.donacion.estado.queue.dlq
+donaciones.dlx	exchange	necesidades.notificacion.donacion.queue.dlq	necesidades.notificacion.donacion.queue.dlq
+donaciones.exchange	exchange	logistica.donacion.creada.queue	donacion.created
+donaciones.exchange	exchange	necesidades.notificacion.donacion.queue	donacion.created
+donaciones.exchange	exchange	logistica.donacion.estado.queue	donacion.estado.changed
+

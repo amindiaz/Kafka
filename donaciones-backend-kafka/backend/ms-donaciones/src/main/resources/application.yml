@@ -1,0 +1,102 @@
+server:
+  port: 8082
+
+spring:
+  # ── Seguridad: el JWT lo emite Keycloak (IDaaS); se valida con su JWKS ──
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:9090/realms/donaciones/protocol/openid-connect/certs}
+
+  application:
+    name: ms-donaciones
+
+  # ── Base de datos (todo por variables de entorno, definidas en docker-compose.yml) ──
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:donaciones_db}?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Santiago
+    username: ${DB_USER:root}
+    password: ${DB_PASS:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+
+  # ── Flyway ────────────────────────────────────────────────────────────────────
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  # ── RabbitMQ (todo por variables de entorno, definidas en docker-compose.yml) ─
+  rabbitmq:
+    # En el clúster se listan ambos nodos (RABBITMQ_ADDRESSES); por defecto uno solo
+    addresses: ${RABBITMQ_ADDRESSES:${RABBITMQ_HOST:localhost}:${RABBITMQ_PORT:5672}}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASS:guest}
+    virtual-host: ${RABBITMQ_VHOST:/}
+
+  # ── Feign + Circuit Breaker ───────────────────────────────────────────────────
+  cloud:
+    openfeign:
+      circuitbreaker:
+        enabled: true
+
+
+# ── Resilience4j Circuit Breaker ──────────────────────────────────────────────
+resilience4j:
+  circuitbreaker:
+    instances:
+      ms-usuarios:
+        failure-rate-threshold: 50
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        sliding-window-size: 10
+        sliding-window-type: COUNT_BASED
+  timelimiter:
+    instances:
+      ms-usuarios:
+        timeout-duration: 3s
+
+# ── Mensajería: nombres centralizados de exchange y routing keys ──────────────
+app:
+  messaging:
+    exchange: donaciones.exchange
+    routing-keys:
+      donacion-creada: donacion.created
+      donacion-estado: donacion.estado.changed
+
+# ── URL microservicio usuarios ────────────────────────────────────────────────
+ms:
+  usuarios:
+    url: ${MS_USUARIOS_URL:http://localhost:8081}
+
+# Eureka desactivado
+eureka:
+  client:
+    enabled: false
+
+# ── Actuator ──────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,circuitbreakers
+  endpoint:
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true
+
+logging:
+  level:
+    cl.donaciones: INFO
+    io.github.resilience4j: DEBUG

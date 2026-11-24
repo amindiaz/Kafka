@@ -1,0 +1,35 @@
+server:
+  port: 8085
+
+spring:
+  # ── Seguridad: el JWT lo emite Keycloak (IDaaS); se valida con su JWKS ──
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:9090/realms/donaciones/protocol/openid-connect/certs}
+
+  application:
+    name: ms-rabbit-admin
+
+  # ── RabbitMQ (todo por variables de entorno, definidas en docker-compose.yml) ─
+  rabbitmq:
+    # En el clúster se listan ambos nodos (RABBITMQ_ADDRESSES); por defecto uno solo
+    addresses: ${RABBITMQ_ADDRESSES:${RABBITMQ_HOST:localhost}:${RABBITMQ_PORT:5672}}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASS:guest}
+    virtual-host: ${RABBITMQ_VHOST:/}
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    cl.donaciones: INFO

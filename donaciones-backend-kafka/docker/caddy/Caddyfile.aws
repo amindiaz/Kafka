@@ -1,0 +1,16 @@
+# Reverse proxy con HTTPS automático (Let's Encrypt) para el despliegue en AWS.
+# DNS: app.$DOMAIN, origin.$DOMAIN y rabbit.$DOMAIN apuntan a la IP elástica de la instancia.
+#   app     → frontend Angular (nginx)
+#   origin  → api-gateway de Spring; es el destino de Amazon API Gateway (no lo usa el navegador)
+#   rabbit  → consola de administración de RabbitMQ (con su propio usuario y clave)
+app.{$DOMAIN} {
+	reverse_proxy frontend:80
+}
+
+origin.{$DOMAIN} {
+	reverse_proxy api-gateway:8080
+}
+
+rabbit.{$DOMAIN} {
+	reverse_proxy rabbitmq:15672
+}

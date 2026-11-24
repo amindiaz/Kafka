@@ -1,0 +1,46 @@
+=== 1) Éxito: se crea la donación y se publica donacion.created
+    2026-10-26 15:05:54
+Donación con centro existente → HTTP 201  {"id":4,"tipo":"Alimentos","cantidad":12,"unidad":"cajas","origen":"Particular","centroAcopio":"Centro Evidencia","estado":"Recibida","fecha":"2026-10-26","usua
+
+===    Logs: publicó → logística consumió y creó envío → necesidades notificó (ACK)
+    2026-10-26 15:05:59
+2026-10-26T18:01:47.661Z  INFO 1 --- [ms-donaciones] [nio-8082-exec-7] c.d.d.m.producer.DonacionEventPublisher  : Evento DONACION_CREADA publicado (donacionId=3, rk=donacion.created, eventId=4a71c299-46f2-45c6-acf7-38bfb0dd83b0)
+2026-10-26T18:05:54.423Z  INFO 1 --- [ms-donaciones] [nio-8082-exec-5] c.d.d.m.producer.DonacionEventPublisher  : Evento DONACION_CREADA publicado (donacionId=4, rk=donacion.created, eventId=00982919-4033-474d-be01-6bc895c3d6f6)
+2026-10-26T18:05:54.504Z  INFO 1 --- [ms-logistica] [ntContainer#0-1] c.d.l.m.c.DonacionLogisticaConsumer      : Evento recibido DONACION_CREADA donacionId=4
+2026-10-26T18:05:54.811Z  INFO 1 --- [ms-logistica] [ntContainer#0-1] c.d.l.service.EnvioEventServiceImpl      : Envío 4 creado automáticamente para la donación 4
+2026-10-26T18:05:54.537Z  INFO 1 --- [ms-necesidades] [ntContainer#0-1] c.d.n.service.NotificacionService        : NOTIFICACIÓN → Nueva donación #4: 12 cajas de Alimentos en centro 'Centro Evidencia'. Revisar necesidades abier
+
+===    Envío creado por el consumidor (GET /api/logistica/envios)
+    2026-10-26 15:06:00
+env�o 2  donaci�n 999  PLANIFICADO
+env�o 3  donaci�n 3  PLANIFICADO
+env�o 4  donaci�n 4  PLANIFICADO
+
+=== 2) Error NO recuperable: rechazo directo a la DLQ (sin reintentos)
+    2026-10-26 15:06:01
+Donación con centro INEXISTENTE → HTTP 201
+
+===    Log del consumidor
+    2026-10-26 15:06:06
+2026-10-26T18:06:01.222Z ERROR 1 --- [ms-logistica] [ntContainer#0-1] c.d.l.m.support.MessageAckHandler        : MENSAJE A DLQ → cola=logistica.donacion.creada.queue dlq=logistica.donacion.creada.queue.dlq intentos=0 causa='No existe un centro de acopio llamado 'CENTRO QUE NO EXISTE'' messageId=null payload={"eventId":"879fc391-bae8-45b7-a029-32e586c879d3","eventType":"DONACION_CREADA","occurredAt":"2026-10-26T18:0
+
+===    Mensajes en cola principal y en DLQ
+    2026-10-26 15:06:06
+logistica.donacion.creada.queue.dlq	2
+logistica.donacion.creada.queue	0
+
+=== 3) Error RECUPERABLE: MySQL caído → hasta 3 reintentos y luego DLQ
+    2026-10-26 15:06:11
+Publicación de un evento válido con MySQL caído → {"routed":true}
+
+===    Logs de reintentos (x-retry-count) y envío final a la DLQ
+    2026-10-26 15:06:51
+2026-10-26T18:06:16.440Z  WARN 1 --- [ms-logistica] [ntContainer#0-1] c.d.l.m.support.MessageAckHandler        : Error recuperable en cola logistica.donacion.creada.queue (intento 1/3): Could not open JPA EntityManager for transaction. Se reintenta.
+2026-10-26T18:06:21.466Z  WARN 1 --- [ms-logistica] [ntContainer#0-1] c.d.l.m.support.MessageAckHandler        : Error recuperable en cola logistica.donacion.creada.queue (intento 2/3): Could not open JPA EntityManager for transaction. Se reintenta.
+2026-10-26T18:06:26.473Z  WARN 1 --- [ms-logistica] [ntContainer#0-1] c.d.l.m.support.MessageAckHandler        : Error recuperable en cola logistica.donacion.creada.queue (intento 3/3): Could not open JPA EntityManager for transaction. Se reintenta.
+2026-10-26T18:06:31.479Z ERROR 1 --- [ms-logistica] [ntContainer#0-1] c.d.l.m.support.MessageAckHandler        : MENSAJE A DLQ → cola=logistica.donacion.creada.queue dlq=logistica.donacion.creada.queue.dlq intentos=3 causa='Could not open JPA EntityManager f
+
+===    Restauración
+    2026-10-26 15:06:52
+(MySQL reiniciado; los servicios se recuperan solos en ~30-60 s)
+

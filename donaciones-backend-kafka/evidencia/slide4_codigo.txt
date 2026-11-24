@@ -1,0 +1,39 @@
+=== Nombres centralizados en application.yml
+    2026-10-26 15:05:53
+--- backend/ms-logistica/src/main/resources/application.yml
+app:
+  messaging:
+    exchange: donaciones.exchange
+    dlx: donaciones.dlx
+    dlq-suffix: .dlq
+    max-retries: 3
+    queues:
+      donacion-creada: logistica.donacion.creada.queue
+      donacion-estado: logistica.donacion.estado.queue
+    routing-keys:
+      donacion-creada: donacion.created
+      donacion-estado: donacion.estado.changed
+
+ms:
+--- backend/ms-necesidades/src/main/resources/application.yml
+app:
+  messaging:
+    exchange: donaciones.exchange
+    dlx: donaciones.dlx
+    dlq-suffix: .dlq
+    max-retries: 3
+    queues:
+      notificacion-donacion: necesidades.notificacion.donacion.queue
+    routing-keys:
+      donacion-creada: donacion.created
+
+ms:
+--- ¿Nombres de colas/exchanges escritos en código de negocio? (debe salir vacío)
+(ninguno)
+
+=== Beans Queue/Exchange/Binding solo en RabbitConfig
+    2026-10-26 15:05:53
+backend/ms-donaciones/src/main/java/cl/donaciones/donaciones/messaging/config/RabbitConfig.java
+backend/ms-logistica/src/main/java/cl/donaciones/logistica/messaging/config/RabbitConfig.java
+backend/ms-necesidades/src/main/java/cl/donaciones/necesidades/messaging/config/RabbitConfig.java
+

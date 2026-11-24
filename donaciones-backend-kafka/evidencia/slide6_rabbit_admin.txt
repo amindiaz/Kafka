@@ -1,0 +1,27 @@
+=== Crear, consultar y eliminar cola, exchange y binding por API
+    2026-10-26 15:07:37
+POST   /api/rabbit/queues                → 201
+POST   /api/rabbit/exchanges             → 201
+POST   /api/rabbit/bindings              → 201
+GET    /api/rabbit/queues/evidencia.queue → 200 {"name":"evidencia.queue","messageCount":0,"consumerCount":0}
+-- existen en RabbitMQ:
+evidencia.queue
+	evidencia.queue	evidencia.queue
+evidencia.exchange	evidencia.queue	k
+DELETE /api/rabbit/bindings              → 204
+DELETE /api/rabbit/exchanges/evidencia.exchange → 204
+DELETE /api/rabbit/queues/evidencia.queue → 204
+
+=== Validación de entrada (deben ser 400)
+    2026-10-26 15:07:41
+nombre vacío              → 400  {"status":400,"timestamp":"2026-10-26T18:07:41.788491484","error":"name: solo puede contener letras, números, '.', '_' y '-'; name: el nombre de la cola es obligatorio"}
+prefijo reservado amq.    → 400  {"status":400,"timestamp":"2026-10-26T18:07:41.963280958","error":"El prefijo 'amq.' está reservado por RabbitMQ"}
+tipo de exchange inválido → 400
+caracteres inválidos      → 400
+
+=== Solo rol ADMIN (403 / 401 para el resto)
+    2026-10-26 15:07:42
+USER      → 403
+OPERADOR  → 403
+sin token → 401
+

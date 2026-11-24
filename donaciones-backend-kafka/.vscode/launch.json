@@ -1,0 +1,54 @@
+{
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Spring Boot-ApiGatewayApplication<api-gateway>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "cl.donaciones.gateway.ApiGatewayApplication",
+            "projectName": "api-gateway",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "type": "java",
+            "name": "Spring Boot-MsDonacionesApplication<ms-donaciones>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "cl.donaciones.donaciones.MsDonacionesApplication",
+            "projectName": "ms-donaciones",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "type": "java",
+            "name": "Spring Boot-MsLogisticaApplication<ms-logistica>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "cl.donaciones.logistica.MsLogisticaApplication",
+            "projectName": "ms-logistica",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "type": "java",
+            "name": "Spring Boot-MsNecesidadesApplication<ms-necesidades>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "cl.donaciones.necesidades.MsNecesidadesApplication",
+            "projectName": "ms-necesidades",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "type": "java",
+            "name": "Spring Boot-MsUsuariosApplication<ms-usuarios>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "cl.donaciones.usuarios.MsUsuariosApplication",
+            "projectName": "ms-usuarios",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ]
+}

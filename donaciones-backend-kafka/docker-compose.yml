@@ -1,0 +1,468 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  DONACIONES - docker-compose.yml                                            ║
+# ║                                                                             ║
+# ║  TODA la configuración de base de datos vive aquí (env vars).               ║
+# ║  Los microservicios leen DB_HOST, DB_PORT, DB_USER, DB_PASS, DB_NAME        ║
+# ║  y JWT_SECRET desde este archivo.                                           ║
+# ║                                                                             ║
+# ║  Para arrancar:   docker-compose up --build                                 ║
+# ║  Para detener:    docker-compose down -v                                    ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+# ── Variables reutilizables ───────────────────────────────────────────────────
+x-db-common: &db-common
+  DB_HOST: mysql
+  DB_PORT: "3306"
+  DB_USER: ${DB_USER:-donaciones_user}
+  DB_PASS: ${DB_PASS:-donaciones_pass}
+
+x-jwt-common: &jwt-common
+  # JWT emitido por Keycloak (IDaaS); los servicios lo validan con su JWKS
+  JWT_JWK_SET_URI: http://keycloak:8080/realms/donaciones/protocol/openid-connect/certs
+  # Legado: solo ms-usuarios (/api/auth/login)
+  JWT_SECRET: ${JWT_SECRET:-clave-secreta-donaciones-2025-muy-larga-y-segura-minimo-256bits}
+  JWT_EXPIRATION: "86400000"
+
+x-rabbit-common: &rabbit-common
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_ADDRESSES: rabbitmq:5672,rabbitmq2:5672   # failover entre nodos del clúster
+  RABBITMQ_USER: ${RABBITMQ_USER:-donaciones_mq}
+  RABBITMQ_PASS: ${RABBITMQ_PASS:-donaciones_mq_pass}
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  mysql_data:
+  rabbitmq_data:
+  rabbitmq2_data:
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  donaciones-net:
+    driver: bridge
+
+services:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # MySQL - única instancia compartida, cada MS tiene su propia base de datos
+  # ════════════════════════════════════════════════════════════════════════════
+  mysql:
+    image: mysql:8.0
+    container_name: donaciones-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_secret}
+      MYSQL_USER: ${DB_USER:-donaciones_user}
+      MYSQL_PASSWORD: ${DB_PASS:-donaciones_pass}
+      # Crea las 4 bases de datos al iniciar
+      MYSQL_DATABASE: usuarios_db
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "3306:3306"
+    networks:
+      - donaciones-net
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # RabbitMQ - clúster de 2 nodos (rabbit@rabbitmq y rabbit@rabbitmq2)
+  # AMQP 5672 / consola 15672 (nodo 1) y 5673 / 15673 (nodo 2)
+  # ════════════════════════════════════════════════════════════════════════════
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: donaciones-rabbitmq
+    hostname: rabbitmq
+    restart: unless-stopped
+    environment: &rabbit-node-env
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-donaciones_mq}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-donaciones_mq_pass}
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-donaciones-cluster-cookie}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-cluster.conf:ro
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - donaciones-net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  rabbitmq2:
+    image: rabbitmq:3.13-management-alpine
+    container_name: donaciones-rabbitmq2
+    hostname: rabbitmq2
+    restart: unless-stopped
+    environment: *rabbit-node-env
+    volumes:
+      - rabbitmq2_data:/var/lib/rabbitmq
+      - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-cluster.conf:ro
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    networks:
+      - donaciones-net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # Política de alta disponibilidad: las colas de la app se replican en ambos nodos
+  rabbitmq-policy:
+    image: rabbitmq:3.13-management-alpine
+    container_name: donaciones-rabbitmq-policy
+    restart: "no"
+    environment: *rabbit-node-env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        for i in $$(seq 1 30); do
+          rabbitmqctl -n rabbit@rabbitmq await_online_nodes 2 >/dev/null 2>&1 && break;
+          echo "esperando a que el clúster esté listo ($$i)"; sleep 3;
+        done &&
+        rabbitmqctl -n rabbit@rabbitmq set_policy ha-donaciones "^(logistica|necesidades)\." '{"ha-mode":"all","ha-sync-mode":"automatic"}' --apply-to queues &&
+        rabbitmqctl -n rabbit@rabbitmq list_policies
+    networks:
+      - donaciones-net
+    depends_on:
+      rabbitmq2:
+        condition: service_healthy
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Keycloak - IDaaS (OAuth 2.0 / OIDC). Realm "donaciones" importado al iniciar.
+  # Consola: http://localhost:9090  (usuarios de prueba en docker/keycloak/donaciones-realm.json)
+  # ════════════════════════════════════════════════════════════════════════════
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: donaciones-keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HTTP_PORT: "8080"
+      KC_HEALTH_ENABLED: "true"
+      FRONTEND_URL: ${PUBLIC_FRONTEND_URL:-http://localhost:4200}   # redirect URI permitida del cliente
+    volumes:
+      - ./docker/keycloak/donaciones-realm.json:/opt/keycloak/data/import/donaciones-realm.json:ro
+    ports:
+      - "9090:8080"
+    networks:
+      - donaciones-net
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Apache Kafka - broker único en modo KRaft (sin ZooKeeper). SOLO laboratorio:
+  # factor de replicación 1, sin tolerancia a fallos y sin volumen persistente.
+  #   localhost:9092  → clientes en Windows (mvn spring-boot:run, herramientas)
+  #   kafka:29092     → otros contenedores (ms-kafka-lab, kafka-ui)
+  # ════════════════════════════════════════════════════════════════════════════
+  kafka:
+    image: apache/kafka:3.9.1
+    container_name: donaciones-kafka
+    hostname: kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,INTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # Lab 3.3.2: el broker revisa la retención cada 60 s
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 60000
+    networks:
+      - donaciones-net
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # Kafka UI → http://localhost:8090  (8080 ya lo usa el api-gateway)
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: donaciones-kafka-ui
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - donaciones-net
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # ms-kafka-lab  →  puerto 8888  (laboratorios Kafka: /api/kafka y /api/test)
+  # Escenario A/B del lab 3.3.2: definir KAFKA_BATCH_SIZE, KAFKA_LINGER_MS y
+  # KAFKA_COMPRESSION en la terminal y ejecutar: docker compose up -d ms-kafka-lab
+  # ════════════════════════════════════════════════════════════════════════════
+  ms-kafka-lab:
+    build:
+      context: .
+      dockerfile: backend/ms-kafka-lab/Dockerfile
+    container_name: ms-kafka-lab
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: "8888"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_BATCH_SIZE: ${KAFKA_BATCH_SIZE:-16384}
+      KAFKA_LINGER_MS: ${KAFKA_LINGER_MS:-0}
+      KAFKA_COMPRESSION: ${KAFKA_COMPRESSION:-none}
+      KAFKA_GROUP_ID: ${KAFKA_GROUP_ID:-mi-grupo-educativo}
+      CONSUMER_CONCURRENCY: ${CONSUMER_CONCURRENCY:-1}
+    ports:
+      - "8888:8888"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - donaciones-net
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8888'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # ms-usuarios  →  puerto 8081
+  # ════════════════════════════════════════════════════════════════════════════
+  ms-usuarios:
+    build:
+      context: .
+      dockerfile: backend/ms-usuarios/Dockerfile
+    container_name: ms-usuarios
+    restart: unless-stopped
+    environment:
+      <<: [*db-common, *jwt-common]
+      DB_NAME: usuarios_db
+      SERVER_PORT: "8081"
+    ports:
+      - "8081:8081"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - donaciones-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # ms-donaciones  →  puerto 8082
+  # ════════════════════════════════════════════════════════════════════════════
+  ms-donaciones:
+    build:
+      context: .
+      dockerfile: backend/ms-donaciones/Dockerfile
+    container_name: ms-donaciones
+    restart: unless-stopped
+    environment:
+      <<: [*db-common, *jwt-common, *rabbit-common]
+      DB_NAME: donaciones_db
+      SERVER_PORT: "8082"
+      MS_USUARIOS_URL: http://ms-usuarios:8081
+    ports:
+      - "8082:8082"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq2:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      ms-usuarios:
+        condition: service_healthy
+    networks:
+      - donaciones-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # ms-necesidades  →  puerto 8083
+  # ════════════════════════════════════════════════════════════════════════════
+  ms-necesidades:
+    build:
+      context: .
+      dockerfile: backend/ms-necesidades/Dockerfile
+    container_name: ms-necesidades
+    restart: unless-stopped
+    environment:
+      <<: [*db-common, *jwt-common, *rabbit-common]
+      DB_NAME: necesidades_db
+      SERVER_PORT: "8083"
+      MS_DONACIONES_URL: http://ms-donaciones:8082
+    ports:
+      - "8083:8083"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq2:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - donaciones-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # ms-logistica  →  puerto 8084
+  # ════════════════════════════════════════════════════════════════════════════
+  ms-logistica:
+    build:
+      context: .
+      dockerfile: backend/ms-logistica/Dockerfile
+    container_name: ms-logistica
+    restart: unless-stopped
+    environment:
+      <<: [*db-common, *jwt-common, *rabbit-common]
+      DB_NAME: logistica_db
+      SERVER_PORT: "8084"
+      MS_DONACIONES_URL: http://ms-donaciones:8082
+    ports:
+      - "8084:8084"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq2:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - donaciones-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # ms-rabbit-admin  →  puerto 8085  (administra colas, exchanges y bindings)
+  # ════════════════════════════════════════════════════════════════════════════
+  ms-rabbit-admin:
+    build:
+      context: .
+      dockerfile: backend/ms-rabbit-admin/Dockerfile
+    container_name: ms-rabbit-admin
+    restart: unless-stopped
+    environment:
+      <<: [*jwt-common, *rabbit-common]
+      SERVER_PORT: "8085"
+    ports:
+      - "8085:8085"
+    depends_on:
+      rabbitmq2:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - donaciones-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8085/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # api-gateway  →  puerto 8080  (único punto de entrada externo)
+  # ════════════════════════════════════════════════════════════════════════════
+  api-gateway:
+    build:
+      context: .
+      dockerfile: backend/api-gateway/Dockerfile
+    container_name: api-gateway
+    restart: unless-stopped
+    environment:
+      <<: *jwt-common
+      SERVER_PORT: "8080"
+      MS_USUARIOS_URL:   http://ms-usuarios:8081
+      MS_DONACIONES_URL: http://ms-donaciones:8082
+      MS_NECESIDADES_URL: http://ms-necesidades:8083
+      MS_LOGISTICA_URL:  http://ms-logistica:8084
+      MS_RABBIT_ADMIN_URL: http://ms-rabbit-admin:8085
+    ports:
+      - "8080:8080"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      ms-usuarios:
+        condition: service_healthy
+      ms-donaciones:
+        condition: service_healthy
+      ms-necesidades:
+        condition: service_healthy
+      ms-logistica:
+        condition: service_healthy
+      ms-rabbit-admin:
+        condition: service_healthy
+    networks:
+      - donaciones-net
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # frontend Angular (nginx)  →  puerto 4200
+  # El código vive en la carpeta hermana donaciones-frontend: FRONTEND_CONTEXT apunta a ella.
+  # API_URL / OIDC_ISSUER son las URLs que ve el NAVEGADOR (en la nube: dominio o IP pública).
+  # ════════════════════════════════════════════════════════════════════════════
+  frontend:
+    build:
+      context: ${FRONTEND_CONTEXT:-../donaciones-frontend}
+    container_name: donaciones-frontend
+    restart: unless-stopped
+    environment:
+      API_URL: ${PUBLIC_API_URL:-http://localhost:8080}
+      OIDC_ISSUER: ${PUBLIC_OIDC_ISSUER:-http://localhost:9090/realms/donaciones}
+      OIDC_CLIENT_ID: donaciones-frontend
+    ports:
+      - "4200:80"
+    depends_on:
+      - api-gateway
+    networks:
+      - donaciones-net

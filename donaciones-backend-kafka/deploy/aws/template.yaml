@@ -1,0 +1,274 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Sistema de Donaciones (DSY1107): EC2 con docker compose (2 nodos RabbitMQ, MySQL, microservicios,
+  frontend Angular), Amazon Cognito como IDaaS y Amazon API Gateway (HTTP API) como API Manager
+  con JWT authorizer.
+
+# ── Parámetros ───────────────────────────────────────────────────────────────
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Par de claves existente para entrar por SSH a la instancia.
+  InstanceType:
+    Type: String
+    Default: t3.large
+    AllowedValues: [t3.large, t3.xlarge, t3a.large, m5.large]
+    Description: Se necesitan 8 GB de RAM (12 contenedores, varios con JVM).
+  SshCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: Rango desde el que se permite SSH. Recomendado SU.IP.PUBLICA/32.
+  BackendRepoUrl:
+    Type: String
+    Description: URL https del repositorio público del backend (donde está docker-compose.yml).
+  FrontendRepoUrl:
+    Type: String
+    Description: URL https del repositorio público del frontend Angular.
+  BackendBranch:
+    Type: String
+    Default: main
+  FrontendBranch:
+    Type: String
+    Default: main
+  DnsSuffix:
+    Type: String
+    Default: nip.io
+    AllowedValues: [nip.io, sslip.io]
+    Description: >-
+      Servicio DNS gratuito que resuelve app.<IP-con-guiones>.<sufijo> a la IP elástica.
+      Si Let's Encrypt limita nip.io, crear la pila de nuevo con sslip.io.
+  LatestUbuntuAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+
+# ── Recursos ─────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── Red: IP elástica + grupo de seguridad (solo 22, 80 y 443) ──────────────
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - { Key: Name, Value: donaciones-ip }
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Donaciones - SSH, HTTP y HTTPS
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: !Ref SshCidr, Description: SSH }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: HTTP (Let's Encrypt) }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS }
+      Tags:
+        - { Key: Name, Value: donaciones-sg }
+
+  # ── IDaaS: Amazon Cognito ───────────────────────────────────────────────────
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: donaciones-users
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true        # sin registro público: los usuarios los crea el administrador
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      Domain: !Sub donaciones-${AWS::AccountId}
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: donaciones-frontend
+      GenerateSecret: false                    # cliente público: Authorization Code + PKCE
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, profile]
+      SupportedIdentityProviders: [COGNITO]
+      CallbackURLs:
+        - !Sub
+          - https://app.${Dom}/
+          - Dom: !Join ['', [!Join ['-', !Split ['.', !Ref ElasticIp]], !Sub '.${DnsSuffix}']]
+        - http://localhost:4200/
+      LogoutURLs:
+        - !Sub
+          - https://app.${Dom}/
+          - Dom: !Join ['', [!Join ['-', !Split ['.', !Ref ElasticIp]], !Sub '.${DnsSuffix}']]
+        - http://localhost:4200/
+      ExplicitAuthFlows: [ALLOW_USER_SRP_AUTH, ALLOW_USER_PASSWORD_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 1
+      TokenValidityUnits: { AccessToken: minutes, IdToken: minutes, RefreshToken: days }
+
+  GroupAdmin:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { UserPoolId: !Ref UserPool, GroupName: ADMIN, Description: Administradores }
+  GroupOperador:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { UserPoolId: !Ref UserPool, GroupName: OPERADOR, Description: Operadores }
+  GroupUser:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { UserPoolId: !Ref UserPool, GroupName: USER, Description: Usuarios de solo lectura }
+
+  # ── API Manager: Amazon API Gateway (HTTP API) con JWT authorizer de Cognito ─
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: donaciones-api
+      ProtocolType: HTTP
+      Description: Punto de entrada del backend; valida el JWT de Cognito y reenvía al backend en EC2.
+      CorsConfiguration:
+        AllowOrigins:
+          - !Sub
+            - https://app.${Dom}
+            - Dom: !Join ['', [!Join ['-', !Split ['.', !Ref ElasticIp]], !Sub '.${DnsSuffix}']]
+          - http://localhost:4200
+        AllowMethods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+        AllowHeaders: [authorization, content-type]
+        MaxAge: 300
+
+  JwtAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref HttpApi
+      Name: cognito-jwt
+      AuthorizerType: JWT
+      IdentitySource: ['$request.header.Authorization']
+      JwtConfiguration:
+        Audience: [!Ref UserPoolClient]
+        Issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+
+  BackendIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: HTTP_PROXY
+      IntegrationMethod: ANY
+      PayloadFormatVersion: '1.0'
+      IntegrationUri: !Sub
+        - https://origin.${Dom}/api/{proxy}
+        - Dom: !Join ['', [!Join ['-', !Split ['.', !Ref ElasticIp]], !Sub '.${DnsSuffix}']]
+
+  ApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'ANY /api/{proxy+}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub integrations/${BackendIntegration}
+
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: $default
+      AutoDeploy: true
+
+  # ── Servidor: EC2 con docker compose ───────────────────────────────────────
+  Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: [ApiStage, ApiRoute]
+    Properties:
+      ImageId: !Ref LatestUbuntuAmi
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SecurityGroupIds: [!GetAtt SecurityGroup.GroupId]
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: { VolumeSize: 30, VolumeType: gp3 }
+      Tags:
+        - { Key: Name, Value: donaciones-backend }
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            # Despliegue automático. Registro: /var/log/donaciones-deploy.log
+            set -euxo pipefail
+            exec > >(tee -a /var/log/donaciones-deploy.log) 2>&1
+
+            export DEBIAN_FRONTEND=noninteractive
+            curl -fsSL https://get.docker.com | sh
+            usermod -aG docker ubuntu
+
+            su - ubuntu -c "mkdir -p ~/donaciones && cd ~/donaciones && \
+              git clone --branch ${BackendBranch} ${BackendRepoUrl} donaciones-backend && \
+              git clone --branch ${FrontendBranch} ${FrontendRepoUrl} donaciones-frontend"
+
+            cd /home/ubuntu/donaciones/donaciones-backend
+            rnd() { openssl rand -base64 24 | tr -d '/+=' ; }
+            cat > .env.aws <<EOF
+            DOMAIN=${Dom}
+            PUBLIC_API_URL=https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
+            COGNITO_ISSUER=https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+            AWS_JWKS_URI=https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}/.well-known/jwks.json
+            COGNITO_CLIENT_ID=${UserPoolClient}
+            COGNITO_DOMAIN=${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com
+            MYSQL_ROOT_PASSWORD=$(rnd)
+            DB_USER=donaciones_user
+            DB_PASS=$(rnd)
+            RABBITMQ_USER=donaciones_mq
+            RABBITMQ_PASS=$(rnd)
+            RABBITMQ_ERLANG_COOKIE=$(rnd)
+            JWT_SECRET=$(rnd)$(rnd)
+            FRONTEND_CONTEXT=../donaciones-frontend
+            EOF
+            sed -i 's/^[ \t]*//' .env.aws
+            chown ubuntu:ubuntu .env.aws && chmod 600 .env.aws
+
+            # El primer arranque puede fallar por el orden de los healthchecks: se reintenta
+            for i in 1 2 3 4; do
+              docker compose -f docker-compose.yml -f docker-compose.aws.yml --env-file .env.aws up -d --build && break
+              sleep 30
+            done
+            docker compose -f docker-compose.yml -f docker-compose.aws.yml --env-file .env.aws ps
+            echo "DESPLIEGUE TERMINADO" > /home/ubuntu/DESPLIEGUE_OK
+          - Dom: !Join ['', [!Join ['-', !Split ['.', !Ref ElasticIp]], !Sub '.${DnsSuffix}']]
+
+  ElasticIpAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref Instance
+      AllocationId: !GetAtt ElasticIp.AllocationId
+
+# ── Salidas ──────────────────────────────────────────────────────────────────
+Outputs:
+  AppUrl:
+    Description: Frontend (HTTPS). La primera carga tarda ~15 min tras crear la pila (compilación de imágenes).
+    Value: !Sub
+      - https://app.${Dom}
+      - Dom: !Join ['', [!Join ['-', !Split ['.', !Ref ElasticIp]], !Sub '.${DnsSuffix}']]
+  ApiUrl:
+    Description: Amazon API Gateway (API Manager). Rutas bajo /api/*.
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
+  RabbitConsoleUrl:
+    Description: Consola de RabbitMQ (usuario donaciones_mq; la clave está en ~/donaciones/donaciones-backend/.env.aws).
+    Value: !Sub
+      - https://rabbit.${Dom}
+      - Dom: !Join ['', [!Join ['-', !Split ['.', !Ref ElasticIp]], !Sub '.${DnsSuffix}']]
+  UserPoolId:
+    Description: Para crear los usuarios de prueba (deploy/aws/crear-usuarios.sh).
+    Value: !Ref UserPool
+  CognitoIssuer:
+    Value: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+  CognitoClientId:
+    Value: !Ref UserPoolClient
+  CognitoHostedUi:
+    Value: !Sub https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com
+  SshCommand:
+    Description: Acceso a la instancia.
+    Value: !Sub ssh -i <su-clave>.pem ubuntu@${ElasticIp}
+  DeployLog:
+    Description: Seguimiento del despliegue (dentro de la instancia).
+    Value: tail -f /var/log/donaciones-deploy.log

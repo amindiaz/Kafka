@@ -1,0 +1,75 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  Despliegue en la nube: se usa SOBRE docker-compose.yml                      ║
+# ║                                                                              ║
+# ║    docker compose -f docker-compose.yml -f docker-compose.cloud.yml \        ║
+# ║        --env-file .env.cloud up -d --build                                   ║
+# ║                                                                              ║
+# ║  - HTTPS con Caddy (el login OIDC/PKCE exige contexto seguro en el navegador)║
+# ║  - Solo 80/443 quedan publicados: BD, brokers y microservicios son internos  ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: donaciones-caddy
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?define DOMAIN en .env.cloud}
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - donaciones-net
+    depends_on:
+      - frontend
+      - api-gateway
+      - keycloak
+
+  keycloak:
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:?define KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?define KEYCLOAK_ADMIN_PASSWORD}
+      KC_HTTP_PORT: "8080"
+      KC_HEALTH_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded        # detrás de Caddy
+      KC_HOSTNAME: https://auth.${DOMAIN}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"   # los servicios consultan el JWKS por la red interna
+      FRONTEND_URL: https://app.${DOMAIN}
+    ports: !reset []
+
+  frontend:
+    environment:
+      API_URL: https://api.${DOMAIN}
+      OIDC_ISSUER: https://auth.${DOMAIN}/realms/donaciones
+      OIDC_CLIENT_ID: donaciones-frontend
+    ports: !reset []
+
+  api-gateway:
+    environment:
+      CORS_ALLOWED_ORIGIN: https://app.${DOMAIN}
+    ports: !reset []
+
+  mysql:
+    ports: !reset []
+  rabbitmq:
+    ports: !reset []
+  rabbitmq2:
+    ports: !reset []
+  ms-usuarios:
+    ports: !reset []
+  ms-donaciones:
+    ports: !reset []
+  ms-necesidades:
+    ports: !reset []
+  ms-logistica:
+    ports: !reset []
+  ms-rabbit-admin:
+    ports: !reset []
+
+volumes:
+  caddy_data:
+  caddy_config:

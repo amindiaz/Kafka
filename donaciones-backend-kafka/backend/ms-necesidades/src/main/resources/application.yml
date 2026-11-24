@@ -1,0 +1,105 @@
+server:
+  port: 8083
+
+spring:
+  # ── Seguridad: el JWT lo emite Keycloak (IDaaS); se valida con su JWKS ──
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:9090/realms/donaciones/protocol/openid-connect/certs}
+
+  application:
+    name: ms-necesidades
+
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:necesidades_db}?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Santiago
+    username: ${DB_USER:root}
+    password: ${DB_PASS:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      connection-timeout: 5000   # falla rápido si la BD cae: el consumidor reintenta y luego envía a la DLQ
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+
+  # ── RabbitMQ (todo por variables de entorno, definidas en docker-compose.yml) ─
+  rabbitmq:
+    # En el clúster se listan ambos nodos (RABBITMQ_ADDRESSES); por defecto uno solo
+    addresses: ${RABBITMQ_ADDRESSES:${RABBITMQ_HOST:localhost}:${RABBITMQ_PORT:5672}}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASS:guest}
+    virtual-host: ${RABBITMQ_VHOST:/}
+    listener:
+      simple:
+        acknowledge-mode: manual
+        default-requeue-rejected: false
+        prefetch: 10
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  cloud:
+    openfeign:
+      circuitbreaker:
+        enabled: true
+
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      ms-donaciones:
+        failure-rate-threshold: 50
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        sliding-window-size: 10
+        sliding-window-type: COUNT_BASED
+  timelimiter:
+    instances:
+      ms-donaciones:
+        timeout-duration: 3s
+
+# ── Mensajería: nombres centralizados de exchanges, colas y routing keys ──────
+app:
+  messaging:
+    exchange: donaciones.exchange
+    dlx: donaciones.dlx
+    dlq-suffix: .dlq
+    max-retries: 3
+    queues:
+      notificacion-donacion: necesidades.notificacion.donacion.queue
+    routing-keys:
+      donacion-creada: donacion.created
+
+ms:
+  donaciones:
+    url: ${MS_DONACIONES_URL:http://localhost:8082}
+
+eureka:
+  client:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,circuitbreakers
+  endpoint:
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true
+
+logging:
+  level:
+    cl.donaciones: INFO
+    io.github.resilience4j: DEBUG

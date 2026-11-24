@@ -1,0 +1,97 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  Despliegue en AWS: se usa SOBRE docker-compose.yml                          ║
+# ║                                                                              ║
+# ║    docker compose -f docker-compose.yml -f docker-compose.aws.yml \          ║
+# ║        --env-file .env.aws up -d --build                                     ║
+# ║                                                                              ║
+# ║  Diferencias con el modo local:                                              ║
+# ║   - El IDaaS es Amazon Cognito (Keycloak no se levanta: perfil local-idp)    ║
+# ║   - El API Manager es Amazon API Gateway, que valida el JWT y reenvía a      ║
+# ║     https://origin.<DOMAIN> (Caddy → api-gateway de Spring)                  ║
+# ║   - Solo 80/443 publicados (HTTPS automático con Caddy)                      ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+x-aws-jwt: &aws-jwt
+  # JWKS del user pool de Cognito: los servicios validan firma y expiración con él
+  JWT_JWK_SET_URI: ${AWS_JWKS_URI:?define AWS_JWKS_URI en .env.aws}
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: donaciones-caddy
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?define DOMAIN en .env.aws}
+    volumes:
+      - ./docker/caddy/Caddyfile.aws:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - donaciones-net
+    depends_on:
+      - frontend
+      - api-gateway
+
+  # Cognito reemplaza a Keycloak: solo arranca con --profile local-idp (pruebas locales)
+  keycloak:
+    profiles: ["local-idp"]
+
+  api-gateway:
+    environment:
+      <<: *aws-jwt
+    depends_on: !override
+      ms-usuarios:
+        condition: service_healthy
+      ms-donaciones:
+        condition: service_healthy
+      ms-necesidades:
+        condition: service_healthy
+      ms-logistica:
+        condition: service_healthy
+      ms-rabbit-admin:
+        condition: service_healthy
+    ports: !reset []
+
+  ms-usuarios:
+    environment:
+      <<: *aws-jwt
+    ports: !reset []
+  ms-donaciones:
+    environment:
+      <<: *aws-jwt
+    ports: !reset []
+  ms-necesidades:
+    environment:
+      <<: *aws-jwt
+    ports: !reset []
+  ms-logistica:
+    environment:
+      <<: *aws-jwt
+    ports: !reset []
+  ms-rabbit-admin:
+    environment:
+      <<: *aws-jwt
+    ports: !reset []
+
+  frontend:
+    environment:
+      # URLs que ve el navegador: API Gateway de AWS, Cognito y su dominio de login
+      API_URL: ${PUBLIC_API_URL:?define PUBLIC_API_URL en .env.aws}
+      OIDC_ISSUER: ${COGNITO_ISSUER:?define COGNITO_ISSUER en .env.aws}
+      OIDC_CLIENT_ID: ${COGNITO_CLIENT_ID:?define COGNITO_CLIENT_ID en .env.aws}
+      COGNITO_DOMAIN: ${COGNITO_DOMAIN:-}
+    ports: !reset []
+
+  mysql:
+    ports: !reset []
+  rabbitmq:
+    ports: !reset []
+  rabbitmq2:
+    ports: !reset []
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,96 @@
+{
+  "realm": "donaciones",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "ADMIN"
+      },
+      {
+        "name": "OPERADOR"
+      },
+      {
+        "name": "USER"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "donaciones-frontend",
+      "name": "Frontend Angular",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "${FRONTEND_URL}/*"
+      ],
+      "webOrigins": [
+        "${FRONTEND_URL}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${FRONTEND_URL}/*"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@donaciones.cl",
+      "firstName": "Admin",
+      "lastName": "Donaciones",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "ADMIN"
+      ]
+    },
+    {
+      "username": "operador",
+      "enabled": true,
+      "email": "operador@donaciones.cl",
+      "firstName": "Operador",
+      "lastName": "Donaciones",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "operador123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "OPERADOR"
+      ]
+    },
+    {
+      "username": "usuario",
+      "enabled": true,
+      "email": "usuario@donaciones.cl",
+      "firstName": "Usuario",
+      "lastName": "Donaciones",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "usuario123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "USER"
+      ]
+    }
+  ]
+}

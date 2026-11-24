@@ -1,0 +1,97 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+  # JWT emitido por Keycloak (IDaaS): se valida con su JWKS
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:9090/realms/donaciones/protocol/openid-connect/certs}
+
+  cloud:
+    gateway:
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins:
+              - "http://localhost:5173"
+              - "http://localhost:3000"
+              - "http://localhost:4200"
+              - "${CORS_ALLOWED_ORIGIN:http://localhost:4200}"
+            allowedMethods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+            allowedHeaders: "*"
+            allowCredentials: true
+
+      routes:
+        # ── ms-usuarios (auth + usuarios) ─────────────────────────────────────
+        - id: ms-auth
+          uri: ${MS_USUARIOS_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/auth/**
+          filters:
+            - StripPrefix=0
+
+        - id: ms-usuarios
+          uri: ${MS_USUARIOS_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/usuarios/**
+          filters:
+            - StripPrefix=0
+
+        # ── ms-donaciones ──────────────────────────────────────────────────────
+        - id: ms-donaciones
+          uri: ${MS_DONACIONES_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/donaciones/**
+          filters:
+            - StripPrefix=0
+
+        # ── ms-necesidades ─────────────────────────────────────────────────────
+        - id: ms-necesidades
+          uri: ${MS_NECESIDADES_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/necesidades/**
+          filters:
+            - StripPrefix=0
+
+        # ── ms-logistica ───────────────────────────────────────────────────────
+        - id: ms-logistica
+          uri: ${MS_LOGISTICA_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/logistica/**
+          filters:
+            - StripPrefix=0
+
+        # ── ms-rabbit-admin (administración de colas/exchanges/bindings, solo ADMIN) ──
+        - id: ms-rabbit-admin
+          uri: ${MS_RABBIT_ADMIN_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/rabbit/**
+          filters:
+            - StripPrefix=0
+
+# Eureka desactivado (sin service discovery externo)
+eureka:
+  client:
+    enabled: false
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    gateway:
+      enabled: true
+    health:
+      show-details: always
+
+logging:
+  level:
+    org.springframework.cloud.gateway: INFO
+    cl.donaciones: DEBUG

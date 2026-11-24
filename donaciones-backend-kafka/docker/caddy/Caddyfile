@@ -1,0 +1,18 @@
+# Reverse proxy con HTTPS automático (Let's Encrypt; certificado interno si DOMAIN=localhost).
+# Requiere DNS: app.$DOMAIN, api.$DOMAIN, auth.$DOMAIN y rabbit.$DOMAIN apuntando a esta máquina.
+app.{$DOMAIN} {
+	reverse_proxy frontend:80
+}
+
+api.{$DOMAIN} {
+	reverse_proxy api-gateway:8080
+}
+
+auth.{$DOMAIN} {
+	reverse_proxy keycloak:8080
+}
+
+# Consola de administración de RabbitMQ (protegida por su propio usuario/clave)
+rabbit.{$DOMAIN} {
+	reverse_proxy rabbitmq:15672
+}

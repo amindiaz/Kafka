@@ -1,0 +1,17 @@
+=== El gateway rechaza JWT inválidos y acepta los correctos
+    2026-10-26 15:07:42
+sin token                 → 401
+token inventado           → 401
+token con firma adulterada→ 401
+token válido (OPERADOR)   → 200
+
+=== Autorización por rol
+    2026-10-26 15:07:42
+USER GET donaciones       → 200  (200)
+USER POST donaciones      → 403  (403)
+OPERADOR DELETE donaciones→ 403  (403)
+
+=== CORS del frontend
+    2026-10-26 15:07:43
+Origen http://localhost:4200 → HTTP/1.1 200 OK Access-Control-Allow-Origin: http://localhost:4200 
+
