@@ -1,0 +1,65 @@
+server:
+  port: ${SERVER_PORT:8888}
+
+spring:
+  application:
+    name: ms-kafka-lab
+
+  kafka:
+    # Desde Windows (mvn spring-boot:run): localhost:9092
+    # Desde Docker Compose:               kafka:29092 (listener INTERNAL)
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+    # ── Productor ──────────────────────────────────────────────────────────────
+    # Lab 3.3.2: batch.size, linger.ms y compresión se cambian por variables de entorno
+    #   Escenario A: KAFKA_BATCH_SIZE=16384 KAFKA_LINGER_MS=0  KAFKA_COMPRESSION=none
+    #   Escenario B: KAFKA_BATCH_SIZE=32768 KAFKA_LINGER_MS=20 KAFKA_COMPRESSION=snappy
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      batch-size: ${KAFKA_BATCH_SIZE:16384}
+      compression-type: ${KAFKA_COMPRESSION:none}
+      buffer-memory: ${KAFKA_BUFFER_MEMORY:33554432}
+      properties:
+        linger.ms: ${KAFKA_LINGER_MS:0}
+
+    # ── Consumidor (guía autónoma: grupo mi-grupo-educativo con auto-commit) ─────
+    # Prueba D (relectura con grupo nuevo): KAFKA_GROUP_ID=mi-grupo-educativo-2
+    # El SlowConsumer del lab 3.3.2 usa su propio grupo (analytics-group) y commit
+    # manual por registro: ver KafkaLabConfig.analyticsListenerFactory.
+    consumer:
+      group-id: ${KAFKA_GROUP_ID:mi-grupo-educativo}
+      auto-offset-reset: earliest
+      enable-auto-commit: true
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+# ── Parámetros de los laboratorios ─────────────────────────────────────────────
+lab:
+  tutorial:
+    topic: tutorial-particiones
+  tuning:
+    topic: sensor-topic
+    group-id: analytics-group
+    partitions: 3
+    retention-ms: 300000        # 5 minutos
+    retention-bytes: 52428800   # 50 MiB por partición
+    segment-bytes: 1048576      # segmentos de 1 MiB
+    window-size: 500            # mensajes por ventana antes de esperar confirmaciones
+    sensors: 5                  # claves sensor-0 .. sensor-4
+    consumer-delay-ms: ${CONSUMER_DELAY_MS:10}   # pausa por mensaje para provocar lag
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    cl.donaciones: INFO
+    org.apache.kafka: WARN
