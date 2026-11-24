@@ -1,0 +1,26 @@
+<header class="nav">
+  <strong class="brand">Donaciones</strong>
+  @if (auth.isLoggedIn) {
+    <nav>
+      <a routerLink="/donaciones" routerLinkActive="active">Donaciones</a>
+      <a routerLink="/necesidades" routerLinkActive="active">Necesidades</a>
+      <a routerLink="/envios" routerLinkActive="active">Envíos</a>
+      @if (auth.hasRole('ADMIN')) {
+        <a routerLink="/rabbit" routerLinkActive="active">RabbitMQ</a>
+      }
+    </nav>
+    <span class="user">{{ auth.username }} ({{ auth.roles.join(', ') }})</span>
+    <button (click)="auth.logout()">Cerrar sesión</button>
+  } @else {
+    <span class="spacer"></span>
+    <button (click)="auth.login()">Iniciar sesión</button>
+  }
+</header>
+
+<main>
+  @if (auth.isLoggedIn) {
+    <router-outlet />
+  } @else {
+    <p class="hint">Inicia sesión con el IDaaS (OAuth 2.0 / OpenID Connect) para continuar.</p>
+  }
+</main>

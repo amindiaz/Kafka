@@ -1,0 +1,21 @@
+<h2>Necesidades</h2>
+@if (error()) { <p class="error">{{ error() }}</p> }
+<table>
+  <thead>
+    <tr><th>#</th><th>Recurso</th><th>Cantidad</th><th>Ubicación</th><th>Prioridad</th><th>Estado</th></tr>
+  </thead>
+  <tbody>
+    @for (n of necesidades(); track n.id) {
+      <tr>
+        <td>{{ n.id }}</td>
+        <td>{{ n.recurso }}</td>
+        <td>{{ n.cantidad }} {{ n.unidad }}</td>
+        <td>{{ n.ubicacion }}</td>
+        <td>{{ n.prioridad }}</td>
+        <td>{{ n.estado }}</td>
+      </tr>
+    } @empty {
+      <tr><td colspan="6">Sin necesidades registradas.</td></tr>
+    }
+  </tbody>
+</table>

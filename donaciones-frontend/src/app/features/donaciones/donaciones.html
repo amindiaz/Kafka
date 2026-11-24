@@ -1,0 +1,45 @@
+<h2>Donaciones</h2>
+
+@if (puedeEscribir) {
+  <form class="row" (ngSubmit)="crear()">
+    <label>Tipo <input name="tipo" [(ngModel)]="nueva.tipo" required /></label>
+    <label>Cantidad <input name="cantidad" type="number" min="1" [(ngModel)]="nueva.cantidad" required /></label>
+    <label>Unidad <input name="unidad" [(ngModel)]="nueva.unidad" /></label>
+    <label>Origen <input name="origen" [(ngModel)]="nueva.origen" required /></label>
+    <label>Centro de acopio <input name="centro" [(ngModel)]="nueva.centroAcopio" required /></label>
+    <button type="submit">Registrar donación</button>
+  </form>
+}
+
+@if (mensaje()) { <p class="ok">{{ mensaje() }}</p> }
+@if (error()) { <p class="error">{{ error() }}</p> }
+
+<table>
+  <thead>
+    <tr><th>#</th><th>Tipo</th><th>Cantidad</th><th>Origen</th><th>Centro</th><th>Estado</th></tr>
+  </thead>
+  <tbody>
+    @for (d of donaciones(); track d.id) {
+      <tr>
+        <td>{{ d.id }}</td>
+        <td>{{ d.tipo }}</td>
+        <td>{{ d.cantidad }} {{ d.unidad }}</td>
+        <td>{{ d.origen }}</td>
+        <td>{{ d.centroAcopio }}</td>
+        <td>
+          @if (puedeEscribir) {
+            <select (change)="cambiarEstado(d, $any($event.target).value)">
+              @for (e of estados; track e) {
+                <option [value]="e" [selected]="e.replace('_', ' ') === d.estado">{{ e.replace('_', ' ') }}</option>
+              }
+            </select>
+          } @else {
+            {{ d.estado }}
+          }
+        </td>
+      </tr>
+    } @empty {
+      <tr><td colspan="6">Sin donaciones registradas.</td></tr>
+    }
+  </tbody>
+</table>

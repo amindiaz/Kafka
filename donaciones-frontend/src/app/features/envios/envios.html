@@ -1,0 +1,23 @@
+<h2>Envíos</h2>
+<p>Se generan automáticamente al registrar una donación (evento <code>donacion.created</code> consumido por logística).</p>
+<button class="secondary" (click)="cargar()">Actualizar</button>
+@if (error()) { <p class="error">{{ error() }}</p> }
+<table>
+  <thead>
+    <tr><th>#</th><th>Origen</th><th>Destino</th><th>Descripción</th><th>Donación</th><th>Estado</th></tr>
+  </thead>
+  <tbody>
+    @for (e of envios(); track e.id) {
+      <tr>
+        <td>{{ e.id }}</td>
+        <td>{{ e.centroOrigenNombre }}</td>
+        <td>{{ e.destino }}</td>
+        <td>{{ e.descripcion }}</td>
+        <td>{{ e.donacionId ?? '—' }}</td>
+        <td>{{ e.estado }}</td>
+      </tr>
+    } @empty {
+      <tr><td colspan="6">Sin envíos.</td></tr>
+    }
+  </tbody>
+</table>

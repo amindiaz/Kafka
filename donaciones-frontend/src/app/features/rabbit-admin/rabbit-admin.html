@@ -1,0 +1,38 @@
+<h2>Administración de RabbitMQ</h2>
+@if (mensaje()) { <p class="ok">{{ mensaje() }}</p> }
+@if (error()) { <p class="error">{{ error() }}</p> }
+
+<h3>Colas</h3>
+<form class="row" (ngSubmit)="crearCola()">
+  <label>Nombre <input name="qn" [(ngModel)]="cola.name" required /></label>
+  <label>DLX (opcional) <input name="qdlx" [(ngModel)]="cola.deadLetterExchange" /></label>
+  <label>DLX routing key <input name="qdrk" [(ngModel)]="cola.deadLetterRoutingKey" /></label>
+  <button type="submit">Crear cola</button>
+  <button type="button" class="danger" (click)="eliminarCola()">Eliminar cola</button>
+</form>
+<form class="row" (ngSubmit)="verCola()">
+  <label>Consultar cola <input name="qc" [(ngModel)]="consultaCola" required /></label>
+  <button type="submit" class="secondary">Ver</button>
+  <span>{{ info() }}</span>
+</form>
+
+<h3>Exchanges</h3>
+<form class="row" (ngSubmit)="crearExchange()">
+  <label>Nombre <input name="en" [(ngModel)]="exchange.name" required /></label>
+  <label>Tipo
+    <select name="et" [(ngModel)]="exchange.type">
+      <option>DIRECT</option><option>TOPIC</option><option>FANOUT</option><option>HEADERS</option>
+    </select>
+  </label>
+  <button type="submit">Crear exchange</button>
+  <button type="button" class="danger" (click)="eliminarExchange()">Eliminar exchange</button>
+</form>
+
+<h3>Bindings</h3>
+<form class="row" (ngSubmit)="crearBinding()">
+  <label>Cola <input name="bq" [(ngModel)]="binding.queue" required /></label>
+  <label>Exchange <input name="be" [(ngModel)]="binding.exchange" required /></label>
+  <label>Routing key <input name="br" [(ngModel)]="binding.routingKey" /></label>
+  <button type="submit">Crear binding</button>
+  <button type="button" class="danger" (click)="eliminarBinding()">Eliminar binding</button>
+</form>
