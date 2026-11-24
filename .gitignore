@@ -1,0 +1,12 @@
+# Este repositorio solo incluye lo que se entrega.
+# Todo lo demás de esta carpeta (pautas, entregas anteriores, archivos temporales) queda fuera.
+/*
+!/.gitignore
+!/README.md
+!/donaciones-backend-kafka/
+!/donaciones-frontend/
+!/Informe_Kafka_Donaciones.docx
+!/Presentacion_Kafka_Usos_Reales.pptx
+
+# Archivos temporales de Office
+~$*
